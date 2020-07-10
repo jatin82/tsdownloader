@@ -2,6 +2,7 @@ package com.ts.app;
 
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
@@ -71,12 +72,24 @@ public class MainApp {
 			String file  = tsFileNames.get(i);
 			String progress = ((float)((int)(((float)(i+1)/(float)tsFileNames.size())*10000F))/100F)+"";
 			
-			downloadTS(baseURL+"/"+file,refHeader, baseFileToSave+"/out/"+file);
+			String fileLocation = baseFileToSave+"/out/"+file;
+			if(!isFilePresent(fileLocation)) {
+				downloadTS(baseURL+"/"+file,refHeader, fileLocation );
+				System.out.println(" [DOWNLOAD] :: "+file+" completed :: "+progress+" %");
+			}
+			else {
+				System.out.println("SKIPPED [DOWNLOAD] :: "+file+" completed :: "+progress+" %");
+			}
 			
-			System.out.println(" [DOWNLOAD] :: "+file+" completed :: "+progress+" %");
+			
 			
 		}
 		
+	}
+	
+	public static boolean isFilePresent(String fileLocation) {
+		File file = new File(fileLocation);
+		return file.exists();
 	}
 	
 	public static void downloadTS(String url, String refHeader, String fileLocation) throws ClientProtocolException, IOException {
@@ -106,7 +119,6 @@ public class MainApp {
 		BufferedReader br = new BufferedReader(reader);
 		
 		List<String> files = new ArrayList<>();
-		
 		
 		String read = null;
 		while((read=br.readLine())!=null) {
