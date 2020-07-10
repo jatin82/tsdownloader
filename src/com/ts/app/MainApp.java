@@ -21,7 +21,7 @@ import org.apache.http.impl.client.HttpClients;
 
 public class MainApp {
 
-	static String configFile = "/Users/b0216204/Downloads/movie/tsconfig/config.properties";
+	static String configFile = "config.properties";
 	
 	static String tsFiles = "ts.file.path";
 	
