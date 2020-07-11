@@ -2,25 +2,35 @@ package com.ts.app;
 
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.methods.RequestBuilder;
 import org.apache.http.impl.client.HttpClients;
 
+import com.ts.app.utils.FileLogger;
+import com.ts.app.utils.TerminalCMD;
+
 public class MainApp {
 
+//	static String configFile = "/Users/b0216204/Downloads/movie/tsconfig/config_test.properties";
+	
 	static String configFile = "config.properties";
 	
 	static String tsFiles = "ts.file.path";
@@ -33,6 +43,13 @@ public class MainApp {
 	
 	static String fileName = "file.name";
 	
+	static String tsFileConcatFileName = "ts.file.concat.file.name";
+	
+	static String ffmpegCommand = "ffmpeg.command";
+	
+	static String postCompleteCommands = "post.complete.command";
+	
+	static TerminalCMD terminalCMD;
 	
 	static Properties properties = new Properties();
 	
@@ -41,28 +58,42 @@ public class MainApp {
 		if(args.length>0) {
 			configFile = args[0];
 		}
-		loadProperties();
 		
 		try {
-			download();
-		}
-		catch (Exception e) {
-			e.printStackTrace();
-		}
-	}
-	
-	public static void loadProperties() {
-		try {
-			FileInputStream fis = new FileInputStream(configFile);
-			properties.load(fis);
+			loadProperties();
+			terminalCMD = new TerminalCMD(true, new FileLogger(properties.getProperty(fileToSavePath)+"/log.txt"));
+			List<String> tsFiles = download();
+			mergeAllTSFiles(tsFiles);
 			
+			terminalCMD.run(properties.getProperty(postCompleteCommands));
 		}
 		catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
 	
-	public static void download() throws IOException {
+	public static void loadProperties() throws IOException {	
+		FileInputStream fis = new FileInputStream(configFile);
+		properties.load(fis);
+			
+	}
+	
+	public static void mergeAllTSFiles(List<String> tsFiles) throws IOException, InterruptedException {
+		logMergeFiles(tsFiles);
+		terminalCMD.run(properties.getProperty(ffmpegCommand));
+	}
+	
+	public static void logMergeFiles(List<String> tsFiles) throws IOException {
+		FileWriter fileWriter = new FileWriter(new File(
+				properties.getProperty(fileToSavePath)+"/out/"+properties.getProperty(tsFileConcatFileName)));
+		BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
+		for(String file:tsFiles) {
+			bufferedWriter.write(file+"\n");
+		}
+		bufferedWriter.close();
+	}
+	
+	public static List<String> download() throws Exception {
 		List<String> tsFileNames = parseTsFileNames(); 
 		
 		String baseURL = properties.getProperty(tsUrl);
@@ -74,17 +105,32 @@ public class MainApp {
 			
 			String fileLocation = baseFileToSave+"/out/"+file;
 			if(!isFilePresent(fileLocation)) {
+				long start = System.currentTimeMillis();
 				downloadTS(baseURL+"/"+file,refHeader, fileLocation );
-				System.out.println(" [DOWNLOAD] :: "+file+" completed :: "+progress+" %");
+				long end = System.currentTimeMillis();
+				
+				String speed = formatDecimal(calculateSpeed(start,end,new File(fileLocation).getUsableSpace()),2);
+				terminalCMD.log(" [DOWNLOAD] :: "+file+" completed :: "+progress+" % -- "+speed+" kb/s",true);
 			}
 			else {
-				System.out.println("SKIPPED [DOWNLOAD] :: "+file+" completed :: "+progress+" %");
+				terminalCMD.log("SKIPPED [DOWNLOAD] :: "+file+" completed :: "+progress+" %",true);
 			}
-			
-			
-			
 		}
-		
+		return tsFileNames.parallelStream().map(t->{
+			return "file '"+baseFileToSave+"/out/"+t+"'";
+		}).collect(Collectors.toList());
+	}
+	
+	public static double calculateSpeed(long start, long end, long spaceOccupied) {
+		spaceOccupied /= Math.pow(10, 9);
+		long seconds = (end - start)/1000;
+		double speed = (double)spaceOccupied/seconds;
+		return speed;
+	}
+	
+	public static String formatDecimal(double decimalValue, int roundDigit) {
+		double roundOff = Math.round(decimalValue * Math.pow(10, roundDigit)) / Math.pow(10, roundDigit);
+		return roundOff+"";
 	}
 	
 	public static boolean isFilePresent(String fileLocation) {
@@ -92,14 +138,21 @@ public class MainApp {
 		return file.exists();
 	}
 	
-	public static void downloadTS(String url, String refHeader, String fileLocation) throws ClientProtocolException, IOException {
+	public static void downloadTS(String url, String refHeader, String fileLocation) throws Exception {
 		HttpClient client = HttpClients.custom().build();
 		HttpUriRequest request = RequestBuilder.get()
 		  .setUri(url)
 		  .setHeader("referer", refHeader)
 		  .build();
 		
-		HttpEntity entity = client.execute(request).getEntity();
+		HttpResponse response = client.execute(request);
+		
+		if(response.getStatusLine().getStatusCode()!=200) {
+			throw new Exception("TS file download failed reponsse code:"+response.getStatusLine().getStatusCode()+" URL:"+url);
+		}
+		
+		
+		HttpEntity entity = response.getEntity();
 		entity.getContentLength();
 		InputStream stream =  entity.getContent();
 		
